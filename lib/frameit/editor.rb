@@ -119,10 +119,14 @@ module Frameit
     # Vertical adding around the frames
     def vertical_frame_padding
       padding = fetch_config['padding']
-      unless padding.kind_of?(Integer)
-        padding = padding.split('x')[1].to_i
-      end
-      return scale_padding(padding)
+
+      padding = padding.split('x')[1].to_i unless padding.kind_of?(Integer)
+
+      scale_padding(padding)
+    end
+
+    def title_padding
+      scale_padding(fetch_config['title_padding'])
     end
 
     def scale_padding(padding)
@@ -163,51 +167,64 @@ module Frameit
     # Add the title above the device
     def put_title_into_background(background)
       title_images = build_title_images(image.width, image.height)
-
-      keyword = title_images[:keyword]
-      title = title_images[:title]
-
-      # sum_width: the width of both labels together including the space inbetween
-      #   is used to calculate the ratio
-      sum_width = title.width
-      sum_width += keyword.width + keyword_padding if keyword
-
-      # Resize the 2 labels if necessary
-      smaller = 1.0 # default
-      ratio = (sum_width + keyword_padding * 2) / image.width.to_f
-      if ratio > 1.0
-        # too large - resizing now
-        smaller = (1.0 / ratio)
-
-        Helper.log.debug "Text for image #{self.screenshot.path} is quite long, reducing font size by #{(ratio - 1.0).round(2)}" if $verbose
-
-        title.resize "#{(smaller * title.width).round}x"
-        keyword.resize "#{(smaller * keyword.width).round}x" if keyword
-        sum_width *= smaller
-      end
-
-      vertical_padding = vertical_frame_padding
-      top_space = vertical_padding
-      left_space = (background.width / 2.0 - sum_width / 2.0).round
-
-      self.top_space_above_device += title.height + vertical_padding
+      keyword      = title_images[:keyword]
+      title        = title_images[:title]
 
       # First, put the keyword on top of the screenshot, if we have one
       if keyword
-        background = background.composite(keyword, "png") do |c|
+        keyword = convert_text_image(
+          background,
+          keyword,
+          keyword_padding,
+          vertical_frame_padding
+        ) if keyword
+
+        background = background.composite(keyword[:image], "png") do |c|
           c.compose "Over"
-          c.geometry "+#{left_space}+#{top_space}"
+          c.geometry "+#{keyword[:left_space]}+#{keyword[:top_space]}"
         end
 
-        left_space += keyword.width + (keyword_padding * smaller)
+        title = convert_text_image(
+          background,
+          title,
+          0,
+          keyword[:image].height + vertical_frame_padding + title_padding,
+          keyword[:image].width
+        )
+
+        # Then, put the title on top of the screenshot next to the keyword
+        background = background.composite(title[:image], "png") do |c|
+          c.compose "Over"
+          c.geometry "+#{title[:left_space]}+#{title[:top_space]}"
+        end
+
+        self.top_space_above_device += keyword[:vertical_padding] + title[:vertical_padding]
       end
 
-      # Then, put the title on top of the screenshot next to the keyword
-      background = background.composite(title, "png") do |c|
-        c.compose "Over"
-        c.geometry "+#{left_space}+#{top_space}"
-      end
       background
+    end
+
+    def convert_text_image(background, text_image, padding = 0, vertical_padding = 0, reference_width = nil)
+      width = text_image.width + padding
+      reference_width ||= image.width
+      ratio = (width + padding * 2) / reference_width.to_f
+
+      if ratio > 1.0
+        smaller = (1.0 / ratio)
+        text_image.resize("#{(smaller * width).round}x")
+        width *= smaller
+      end
+
+      top_space  = vertical_padding
+      left_space = (background.width / 2.0 - width / 2.0).round
+
+      {
+        image:            text_image,
+        left_space:       left_space,
+        top_space:        top_space,
+        padding:          padding,
+        vertical_padding: vertical_padding,
+      }
     end
 
     def actual_font_size
