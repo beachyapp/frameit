@@ -131,8 +131,14 @@ module Frameit
 
     def scale_padding(padding)
       multi = 1.0
-      multi = 1.7 if self.screenshot.triple_density?
-      return padding * multi
+
+      if screenshot.screen_size == 'iOS-iPad'
+        multi = 2.0
+      elsif screenshot.triple_density?
+        multi = 1.7
+      end
+
+      padding * multi
     end
 
     # Returns a correctly sized background image
